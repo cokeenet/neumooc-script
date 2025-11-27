@@ -6,9 +6,9 @@
 // @author       LuBanQAQ & Cokee
 // @license      MIT
 // @match        https://*.neumooc.com/*
-// @match        http*://localhost/*
-// @downloadURL  https://raw.githubusercontent.com/LuBanQAQ/neumooc-script/main/neumooc-script.user.js
-// @updateURL    https://raw.githubusercontent.com/LuBanQAQ/neumooc-script/main/neumooc-script.user.js
+// @match        http*://localhost/neustudy/*
+// @downloadURL  https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
+// @updateURL    https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
