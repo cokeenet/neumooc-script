@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         NEUMOOC 智能助手
 // @namespace    http://tampermonkey.net/
-// @version      1.2.5
-// @description  NEUMOOC 智能助手，修复单页多题、悬浮球、拖动，并支持批量答题中断。
+// @version      1.2.8
+// @description  NEUMOOC 智能助手，修复单页无限循环的严重BUG，并支持单页多题、批量答题中断、下一题按钮识别和恢复ETA功能。
 // @author       LuBanQAQ & Cokee
 // @license      MIT
 // @match        https://*.neumooc.com/*
-// @match        http*://localhost/neustudy/*
-// @downloadURL  https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
-// @updateURL    https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
+// @match        http*://localhost/*
+// @downloadURL  https://raw.githubusercontent.com/LuBanQAQ/neumooc-script/main/neumooc-script.user.js
+// @updateURL    https://raw.githubusercontent.com/LuBanQAQ/neumooc-script/main/neumooc-script.user.js
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -18,7 +18,7 @@
 // @resource     sweetalert2_css https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css
 // @connect      *
 // ==/UserScript==
-// Written by Gemini
+
 (function () {
     "use strict";
 
@@ -34,8 +34,9 @@
         optionLabel: '.el-radio, .el-checkbox',
         optionText: '.choices-html',
         mainQuestionText: '.qusetion-info.is-child-false .info-item:first-child .value',
-        nextButton: '.next-question-btn, .left-bottom .el-button--primary span, .left-bottom .el-button--primary',
-        prevButton: '.prev-question-btn, .left-bottom .el-button:not(.el-button--primary)',
+        // 修复：使用更通用的选择器，实际查找在函数中完成
+        nextButtonContainer: '.next-question-btn, .left-bottom',
+        prevButtonContainer: '.prev-question-btn, .left-bottom',
         blankInputContainer: '.choices',
         blankInputField: '.el-input__inner, .wangEditorSign .w-e-text-container [contenteditable]'
     };
@@ -67,8 +68,12 @@
 
     let timeDelay = GM_getValue("timeDelay", 1500);
     let isAutoAnswering = false;
-    let isBulkAnswering = false; // 新增：用于控制批量答题状态
+    let isBulkAnswering = false;
     let currentQuestionIndex = 0;
+
+    // --- ETA 变量 ---
+    let autoStartTime = 0;
+    let answeredInCurrentLoop = 0;
 
     const savedPanelPos = JSON.parse(localStorage.getItem('neumooc_panel_pos')) || { top: 100, right: 20 };
     const savedBallPos = JSON.parse(localStorage.getItem('neumooc_ball_pos')) || { top: 100, right: 20 };
@@ -111,7 +116,9 @@
             right: ${savedBallPos.right}px;
             width: 40px; height: 40px; border-radius: 50%;
             background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            color: #fff; display: none; align-items: center; justify-content: center;
+            color: #fff;
+            display: none; /* 默认隐藏，只有点击最小化才显示 */
+            align-items: center; justify-content: center;
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
             z-index: 999999;
             cursor: grab;
@@ -124,7 +131,7 @@
     panel.id = "control-panel";
     panel.innerHTML = `
         <div id="control-panel-header">
-            <span>🎓 智能助手 v1.2.5</span>
+            <span>🎓 智能助手 v1.2.8</span>
             <span id="minimize-btn">➖</span>
         </div>
         <div id="control-panel-body">
@@ -172,7 +179,7 @@
 
     const floatingBall = document.createElement('div');
     floatingBall.id = 'floating-ball';
-    floatingBall.innerHTML = '<span>❏</span>';
+    floatingBall.innerHTML = '<span>🤖</span>';
     document.body.appendChild(floatingBall);
 
     // 初始化输入框的值
@@ -191,13 +198,38 @@
     };
 
     // =================================================================
-    // 3. 通用辅助函数 (仅包含必要部分)
+    // 3. 通用辅助函数 (新增按钮查找)
     // =================================================================
 
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const getRandomDelay = (base) => {
         if (!base) return Math.random() * 1000;
         return base + Math.random() * 900;
+    };
+
+    /**
+     * 根据文本和容器查找可见的按钮
+     * @param {string} containerSelector 按钮父元素的CSS选择器
+     * @param {string} text 按钮文本（例如 "下一题", "上一题"）
+     * @returns {HTMLElement | null} 找到的按钮元素
+     */
+    const findButtonByText = (containerSelector, text) => {
+        const containers = document.querySelectorAll(containerSelector);
+        for (const container of containers) {
+            // 在容器内查找所有按钮
+            const buttons = container.querySelectorAll('.el-button');
+            for (const btn of buttons) {
+                // 检查按钮文本是否包含目标文本
+                if (btn.textContent.includes(text)) {
+                    // 检查按钮是否被禁用或隐藏 (style="display: none")
+                    if (btn.getAttribute('aria-disabled') === 'true' || window.getComputedStyle(btn).display === 'none') {
+                        continue; // 跳过禁用的或隐藏的按钮
+                    }
+                    return btn; // 找到目标按钮
+                }
+            }
+        }
+        return null;
     };
 
     const hasTagText = (questionBox, text) => {
@@ -229,7 +261,7 @@
     };
 
     // =================================================================
-    // 4. 核心功能: 选择与填空
+    // 4. 核心功能: 选择与填空 (保持不变)
     // =================================================================
 
     async function selectOptionByText(questionBox, answerLetters) {
@@ -294,7 +326,7 @@
     }
 
     // =================================================================
-    // 5. AI 请求与题目解析 (核心请求函数)
+    // 5. AI 请求与题目解析
     // =================================================================
 
     const buildSinglePrompt = (questionText, options, isMultiple, isJudge, isBlank, context = "") => {
@@ -331,7 +363,7 @@
                 }),
                 onload: (res) => {
                     try {
-                        // **批量答题中断检查点 1**
+                        // 批量答题中断检查点 1
                         if (!isBulkAnswering && !isAutoAnswering) {
                             return reject("任务已被用户中断");
                         }
@@ -379,7 +411,6 @@
         let extractedData = [];
 
         allBoxes.forEach((box, index) => {
-            // ... (提取逻辑保持不变) ...
             if (isCombinationQuestion(box)) {
                 const context = getMainQuestionText(box);
                 const subQuestions = getSubQuestions(box);
@@ -426,7 +457,7 @@
         const allBoxes = Array.from(document.querySelectorAll('.item-box[id^="question-"]'));
 
         for (let i = 0; i < allBoxes.length; i++) {
-             // **批量答题中断检查点 2**
+             // 批量答题中断检查点 2
             if (!isBulkAnswering) {
                 log("🔴 批量答案应用被用户中断。");
                 return;
@@ -497,7 +528,7 @@
 
             const aiResRaw = await sendAiRequest(prompt);
 
-            // **批量答题中断检查点 3**
+            // 批量答题中断检查点 3
             if (!isBulkAnswering) return;
 
             log("🤖 收到 AI 批量响应，正在解析...");
@@ -531,7 +562,7 @@
     });
 
     // =================================================================
-    // 7. 全自动循环模式 (保持不变)
+    // 7. 全自动循环模式 (修复无限循环BUG)
     // =================================================================
 
     const questionNumInput = document.getElementById("single-question-number");
@@ -539,6 +570,7 @@
     questionNumInput.addEventListener('change', () => {
         const val = parseInt(questionNumInput.value);
         if (!isNaN(val) && val > 0) {
+            // 更新当前索引，同时允许手动输入题号来调整起始位置
             currentQuestionIndex = val - 1;
             log(`✏️ 答题起始位置设为: 第 ${val} 题`);
         }
@@ -548,21 +580,26 @@
         const info = document.getElementById("question-info");
         if (info) info.textContent = `当前: 第 ${currentIdx + 1} / ${total} 题`;
 
+        // 只有当输入框不处于焦点状态时才同步更新值
         if (document.activeElement !== questionNumInput) {
             questionNumInput.value = currentIdx + 1;
         }
     };
 
     const checkPageQuestions = () => {
-        const allBoxes = document.querySelectorAll('.item-box[id^="question-"]');
+        const allBoxes = document.querySelectorAll(selectors.questionBox);
         if (allBoxes.length > 0) {
-            if (currentQuestionIndex >= allBoxes.length) {
-                currentQuestionIndex = 0;
+            // BUG 修复：仅当 index 严格大于 length 时才调整，避免在 index == length 时错误地重置到 0
+            if (currentQuestionIndex > allBoxes.length) {
+                currentQuestionIndex = allBoxes.length - 1;
+            } else if (currentQuestionIndex < 0) {
+                 currentQuestionIndex = 0;
             }
             updateQuestionInfoUI(allBoxes.length, currentQuestionIndex);
         }
     };
 
+    // 页面内容变化监听器
     const observer = new MutationObserver(() => setTimeout(checkPageQuestions, 500));
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
 
@@ -573,15 +610,23 @@
 
         if (allBoxes.length === 0) {
             log("⚠️ 未检测到题目，尝试下一页或停止");
-            const nextBtn = document.querySelector(selectors.nextButton);
-            if (nextBtn && !nextBtn.disabled && nextBtn.offsetParent !== null) {
+
+            // 使用修复后的查找函数
+            const nextBtn = findButtonByText(selectors.nextButtonContainer, "下一题");
+
+            if (nextBtn) {
+                log("➡️ 自动点击“下一题”按钮...");
                 nextBtn.click();
-                setTimeout(autoLoopStep, 3000);
+                currentQuestionIndex = 0; // 重置题号
+                answeredInCurrentLoop = 0; // 重置本轮计数
+                autoStartTime = Date.now(); // 重置计时
+                await wait(3000); // 等待页面加载
+                autoLoopStep();
             } else {
                 isAutoAnswering = false;
                 document.getElementById("full-auto-btn").innerText = "⚡️ 开始全自动循环答题";
                 document.getElementById("full-auto-btn").className = "btn-primary";
-                log("🏁 停止运行");
+                log("🏁 停止运行 (未找到下一页按钮)");
             }
             return;
         }
@@ -590,7 +635,25 @@
             const currentBox = allBoxes[currentQuestionIndex];
 
             currentBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            log(`👉 正在处理第 ${currentQuestionIndex + 1} / ${allBoxes.length} 题`);
+
+            // --- ETA 计算与显示 ---
+            const totalQuestions = allBoxes.length;
+            const questionsRemaining = totalQuestions - currentQuestionIndex;
+            const answeredSoFar = answeredInCurrentLoop;
+            const elapsedTime = (Date.now() - autoStartTime) / 1000;
+            const avgTimePerQuestion = answeredSoFar > 0 ? elapsedTime / answeredSoFar : 0;
+            const remainingTimeSeconds = avgTimePerQuestion * questionsRemaining;
+
+            let etaMessage = "";
+            // 只有当已经回答了一定数量的题目后，ETA才具有参考价值
+            if (answeredSoFar >= 1 && remainingTimeSeconds > 5) {
+                const remainingMinutes = Math.ceil(remainingTimeSeconds / 60);
+                const avgSeconds = avgTimePerQuestion.toFixed(1);
+                etaMessage = ` (平均 ${avgSeconds} 秒/题, 预计 ${remainingMinutes} 分钟完成本页)`;
+            }
+
+            log(`👉 正在处理第 ${currentQuestionIndex + 1} / ${totalQuestions} 题${etaMessage}`);
+            // --- ETA end ---
 
             try {
                  if (isCombinationQuestion(currentBox)) {
@@ -610,6 +673,7 @@
             }
 
             currentQuestionIndex++;
+            answeredInCurrentLoop++;
             updateQuestionInfoUI(allBoxes.length, currentQuestionIndex - 1);
 
             await wait(getRandomDelay(timeDelay));
@@ -617,11 +681,16 @@
 
         } else {
             log("📄 本页题目已处理完毕，尝试下一页...");
-            const nextBtn = document.querySelector(selectors.nextButton);
 
-            if (nextBtn && !nextBtn.disabled && nextBtn.offsetParent !== null) {
+            // 使用修复后的查找函数
+            const nextBtn = findButtonByText(selectors.nextButtonContainer, "下一题");
+
+            if (nextBtn) {
+                log("➡️ 自动点击“下一题”按钮...");
                 nextBtn.click();
                 currentQuestionIndex = 0;
+                answeredInCurrentLoop = 0; // 重置本轮计数
+                autoStartTime = Date.now(); // 重置计时
                 await wait(3000);
                 autoLoopStep();
             } else {
@@ -633,12 +702,17 @@
         }
     }
 
+    // 全自动停止逻辑
+    const stopAutoAnswering = () => {
+        isAutoAnswering = false;
+        document.getElementById("full-auto-btn").innerText = "⚡️ 开始全自动循环答题";
+        document.getElementById("full-auto-btn").className = "btn-primary";
+        log("🔴 已停止");
+    };
+
     document.getElementById("full-auto-btn").addEventListener("click", () => {
         if (isAutoAnswering) {
-            isAutoAnswering = false;
-            document.getElementById("full-auto-btn").innerText = "⚡️ 开始全自动循环答题";
-            document.getElementById("full-auto-btn").className = "btn-primary";
-            log("🔴 已停止");
+            stopAutoAnswering();
         } else {
             isAutoAnswering = true;
             document.getElementById("full-auto-btn").innerText = "⏹️ 停止全自动";
@@ -650,6 +724,9 @@
             } else {
                 currentQuestionIndex = 0;
             }
+
+            autoStartTime = Date.now();
+            answeredInCurrentLoop = 0;
 
             log(`🟢 开始全自动循环... 从第 ${currentQuestionIndex + 1} 题开始`);
             autoLoopStep();
@@ -667,12 +744,16 @@
             if (isCombinationQuestion(targetBox)) {
                 const context = getMainQuestionText(targetBox);
                 const subs = getSubQuestions(targetBox);
+                log(`🤖 解答指定组合题[${num}]，包含 ${subs.length} 小题`);
                 for (const sub of subs) {
                     await solveSingleQuestion(sub, true, context);
                     await wait(1000);
                 }
+                log("✅ 指定组合题解答完毕");
             } else {
+                log(`🤖 解答指定单题[${num}]`);
                 await solveSingleQuestion(targetBox);
+                log("✅ 指定单题解答完毕");
             }
         } else {
             log("⚠️ 题号无效");
@@ -680,7 +761,7 @@
     });
 
     // =================================================================
-    // 8. UI 交互与拖动逻辑 (保持不变)
+    // 8. UI 交互与拖动逻辑
     // =================================================================
 
     document.getElementById("save-config-btn").addEventListener("click", () => {
@@ -711,15 +792,20 @@
 
     document.getElementById("minimize-btn").addEventListener("click", () => {
         panel.style.display = 'none';
-        floatingBall.style.display = 'flex';
+        floatingBall.style.display = 'flex'; // 最小化时显示悬浮球
     });
 
     floatingBall.addEventListener("click", (e) => {
-        if (floatingBall.classList.contains('dragging-active')) return;
+        // 检查是否是拖动结束后的点击，如果是则忽略
+        if (floatingBall.classList.contains('dragging-active')) {
+            floatingBall.classList.remove('dragging-active');
+            return;
+        }
 
         panel.style.display = 'block';
         floatingBall.style.display = 'none';
 
+        // 保持位置同步
         panel.style.top = floatingBall.style.top;
         panel.style.right = floatingBall.style.right;
     });
@@ -731,6 +817,7 @@
 
         isDragging = true;
         targetElement = element;
+        // 添加一个临时的类用于在点击事件中判断是否发生了拖动
         targetElement.classList.add('dragging-active');
 
         startX = e.clientX;
@@ -764,7 +851,9 @@
         if (!isDragging) return;
 
         isDragging = false;
-        targetElement.classList.remove('dragging-active');
+        // 在鼠标抬起后，保持 dragging-active 状态一小段时间，以供浮球点击事件判断
+        setTimeout(() => targetElement.classList.remove('dragging-active'), 100);
+
         document.body.style.userSelect = "auto";
         document.body.style.cursor = "default";
 
@@ -810,12 +899,13 @@
         } catch (e) { log("视频操作受限或失败"); }
     });
 
+    // 修复：使用新的查找函数
     document.getElementById("test-prev-btn").addEventListener("click", () => {
-        const btn = document.querySelector(selectors.prevButton);
+        const btn = findButtonByText(selectors.prevButtonContainer, "上一题");
         if(btn) btn.click(); else log("未找到上一题按钮");
     });
     document.getElementById("test-next-btn").addEventListener("click", () => {
-        const btn = document.querySelector(selectors.nextButton);
+        const btn = findButtonByText(selectors.nextButtonContainer, "下一题");
         if(btn) btn.click(); else log("未找到下一题按钮");
     });
 })();
