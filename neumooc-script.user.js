@@ -7,8 +7,8 @@
 // @license      MIT
 // @match        https://*.neumooc.com/*
 // @match        http*://localhost/*
-// @downloadURL  https://raw.githubusercontent.com/LuBanQAQ/neumooc-script/main/neumooc-script.user.js
-// @updateURL    https://raw.githubusercontent.com/LuBanQAQ/neumooc-script/main/neumooc-script.user.js
+// @downloadURL  https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
+// @updateURL    https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -65,12 +65,12 @@
         model: GM_getValue("model", "gpt-3.5-turbo"),
         bulkPromptTemplate: GM_getValue("bulkPromptTemplate", defaultBulkPrompt)
     };
-    
+
     let timeDelay = GM_getValue("timeDelay", 1500);
-    let isAutoAnswering = false; 
-    let isBulkAnswering = false; 
-    let currentQuestionIndex = 0; 
-    
+    let isAutoAnswering = false;
+    let isBulkAnswering = false;
+    let currentQuestionIndex = 0;
+
     // --- ETA 变量 ---
     let autoStartTime = 0;
     let answeredInCurrentLoop = 0;
@@ -79,18 +79,18 @@
     const savedBallPos = JSON.parse(localStorage.getItem('neumooc_ball_pos')) || { top: 100, right: 20 };
 
     // =================================================================
-    // 2. GUI 界面构建 
+    // 2. GUI 界面构建
     // =================================================================
     GM_addStyle(`
-        #control-panel { 
-            position: fixed; 
-            top: ${savedPanelPos.top}px; 
-            right: ${savedPanelPos.right}px; 
-            width: 340px; 
-            background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
-            z-index: 100000; 
-            font-family:'Noto Sans SC', sans-serif; color: #333; font-size: 13px; 
+        #control-panel {
+            position: fixed;
+            top: ${savedPanelPos.top}px;
+            right: ${savedPanelPos.right}px;
+            width: 340px;
+            background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 100000;
+            font-family:'Noto Sans SC', sans-serif; color: #333; font-size: 13px;
         }
         #control-panel-header { padding: 12px; cursor: grab; background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); color: white; border-top-left-radius: 8px; border-top-right-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
         #control-panel-body { padding: 15px; max-height: 75vh; overflow-y: auto; }
@@ -109,20 +109,20 @@
         .collapsible-header.active::after { transform: rotate(180deg); }
         .collapsible-content { display: none; padding-top: 10px; }
         .collapsible-content.visible { display: block; }
-        
-        #floating-ball { 
-            position: fixed; 
-            top: ${savedBallPos.top}px; 
-            right: ${savedBallPos.right}px; 
-            width: 40px; height: 40px; border-radius: 50%; 
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
-            color: #fff; 
+
+        #floating-ball {
+            position: fixed;
+            top: ${savedBallPos.top}px;
+            right: ${savedBallPos.right}px;
+            width: 40px; height: 40px; border-radius: 50%;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: #fff;
             display: none; /* 默认隐藏，只有点击最小化才显示 */
-            align-items: center; justify-content: center; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2); 
-            z-index: 999999; 
-            cursor: grab; 
-            user-select: none; transition: transform 0.1s; 
+            align-items: center; justify-content: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            z-index: 999999;
+            cursor: grab;
+            user-select: none; transition: transform 0.1s;
         }
         #floating-ball:active { transform: scale(0.95); cursor: grabbing; }
     `);
@@ -164,15 +164,15 @@
             </div>
 
             <div id="question-info" style="font-size: 12px; color: #666; margin: 8px 0; font-weight: bold;"></div>
-            
+
             <div style="display: flex; gap: 8px; margin-bottom: 5px;">
                 <input type="number" id="single-question-number" placeholder="题号" style="width: 60px; margin-bottom:0;">
                 <button id="ai-single-solve-btn" style="margin-bottom:0; flex:1;">🤖 解答指定单题</button>
             </div>
-            
+
             <button id="answer-all-btn" class="btn-info" style="margin-top: 5px;">🧠 一键提取并答完本页所有题</button>
             <button id="full-auto-btn" class="btn-primary">⚡️ 开始全自动循环答题 (多页)</button>
-            
+
             <div id="log-area">系统就绪...</div>
         </div>
     `;
@@ -197,11 +197,11 @@
         logArea.innerHTML += `<div><span style="color:#888">[${time}]</span> ${message}</div>`;
         logArea.scrollTop = logArea.scrollHeight;
     };
-    
+
     // =================================================================
-    // 3. 通用辅助函数 
+    // 3. 通用辅助函数
     // =================================================================
-    
+
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const getRandomDelay = (base) => {
         if (!base) return Math.random() * 1000;
@@ -229,7 +229,7 @@
         }
         return null;
     };
-    
+
     const hasTagText = (questionBox, text) => {
         const tags = Array.from(questionBox.querySelectorAll(selectors.questionTypeTag));
         return tags.some(tag => tag.textContent.includes(text));
@@ -272,7 +272,7 @@
 
         for (const letter of lettersToClick) {
             const upperLetter = letter.trim().toUpperCase();
-            const index = upperLetter.charCodeAt(0) - 65; 
+            const index = upperLetter.charCodeAt(0) - 65;
 
             if (index >= 0 && index < options.length) {
                 const targetOption = options[index];
@@ -282,7 +282,7 @@
                     found = true;
                     if (isMultipleWithDelay) await wait(800);
                 } else {
-                    found = true; 
+                    found = true;
                 }
             }
         }
@@ -299,8 +299,8 @@
 
             for (let i = 0; i < blankContainers.length; i++) {
                 const inputField = blankContainers[i].querySelector(selectors.blankInputField);
-                const val = answers[i] || answers[0] || ""; 
-                
+                const val = answers[i] || answers[0] || "";
+
                 if (inputField) {
                     if (inputField.isContentEditable) {
                         inputField.focus();
@@ -331,7 +331,7 @@
         let prompt = `你是一个严谨的答题助手。`;
         if (context) prompt += `\n背景材料：${context}\n`;
         prompt += `\n题目：${questionText}\n`;
-        
+
         if (isBlank) {
             prompt += `这是一个填空题。请直接返回答案内容。如果有多个空，用中文逗号分隔。不要包含任何解释。`;
         } else {
@@ -349,7 +349,7 @@
     const sendAiRequest = (prompt) => {
         return new Promise((resolve, reject) => {
             if (!aiConfig.apiKey) return reject("未配置 API Key");
-            
+
             GM_xmlhttpRequest({
                 method: "POST",
                 url: aiConfig.apiEndpoint,
@@ -363,9 +363,9 @@
                     try {
                         // 批量答题中断检查点 1
                         if (!isBulkAnswering && !isAutoAnswering) {
-                            return reject("任务已被用户中断"); 
+                            return reject("任务已被用户中断");
                         }
-                        
+
                         const data = JSON.parse(res.responseText);
                         const content = data.choices[0].message.content;
                         resolve(content);
@@ -379,15 +379,15 @@
     const solveSingleQuestion = async (questionBox, isSub = false, context = "") => {
         const qTextEl = isSub ? questionBox.querySelector(selectors.subQuestionText) : (questionBox.querySelector(selectors.questionText) || questionBox.querySelector(selectors.subQuestionText));
         if (!qTextEl) return;
-        
+
         const qText = qTextEl.innerText.trim();
-        const isBlank = isBlankFillQuestion(questionBox) && !isSub; 
+        const isBlank = isBlankFillQuestion(questionBox) && !isSub;
         const optionsEl = Array.from(questionBox.querySelectorAll(selectors.optionLabel));
         const optionsText = optionsEl.map(opt => opt.querySelector(selectors.optionText)?.innerText.trim() || "");
-        
+
         const type = getSubQuestionType(questionBox);
         const prompt = buildSinglePrompt(qText, optionsText, type === 'multiple', type === 'judge', isBlank, context);
-        
+
         log(`💬 请求 AI (${qText.slice(0,10)}...)`);
         const aiRes = await sendAiRequest(prompt);
         log(`🤖 AI: ${aiRes}`);
@@ -401,7 +401,7 @@
     };
 
     // =================================================================
-    // 6. 批量答题逻辑 
+    // 6. 批量答题逻辑
     // =================================================================
 
     const extractPageQuestions = () => {
@@ -419,7 +419,7 @@
                         text: opt.querySelector(selectors.optionText)?.innerText.trim()
                     }));
                     extractedData.push({
-                        id: `comb_${index}_${subIdx}`, 
+                        id: `comb_${index}_${subIdx}`,
                         type: getSubQuestionType(sub),
                         question: qText,
                         context: context,
@@ -453,7 +453,7 @@
 
     const applyBulkAnswers = async (answerMap) => {
         const allBoxes = Array.from(document.querySelectorAll('.item-box[id^="question-"]'));
-        
+
         for (let i = 0; i < allBoxes.length; i++) {
              // 批量答题中断检查点 2
             if (!isBulkAnswering) {
@@ -492,7 +492,7 @@
             }
         }
     };
-    
+
     // 批量答题启动/停止函数
     const bulkAnswerStop = () => {
         isBulkAnswering = false;
@@ -519,15 +519,15 @@
             if (questions.length === 0) throw new Error("未检测到题目");
 
             log(`📦 提取到 ${questions.length} 个子题目，正在发送给 AI...`);
-            
+
             let prompt = aiConfig.bulkPromptTemplate;
             const jsonStr = JSON.stringify(questions, null, 2);
             prompt = prompt.replace('{{questions}}', jsonStr);
 
             const aiResRaw = await sendAiRequest(prompt);
-            
+
             // 批量答题中断检查点 3
-            if (!isBulkAnswering) return; 
+            if (!isBulkAnswering) return;
 
             log("🤖 收到 AI 批量响应，正在解析...");
 
@@ -562,14 +562,14 @@
     // =================================================================
     // 7. 全自动循环模式 (修复无限循环BUG)
     // =================================================================
-    
+
     const questionNumInput = document.getElementById("single-question-number");
-    
+
     questionNumInput.addEventListener('change', () => {
         const val = parseInt(questionNumInput.value);
         if (!isNaN(val) && val > 0) {
             // 更新当前索引，同时允许手动输入题号来调整起始位置
-            currentQuestionIndex = val - 1; 
+            currentQuestionIndex = val - 1;
             log(`✏️ 答题起始位置设为: 第 ${val} 题`);
         }
     });
@@ -577,7 +577,7 @@
     const updateQuestionInfoUI = (total, currentIdx) => {
         const info = document.getElementById("question-info");
         if (info) info.textContent = `当前: 第 ${currentIdx + 1} / ${total} 题`;
-        
+
         // 只有当输入框不处于焦点状态时才同步更新值
         if (document.activeElement !== questionNumInput) {
             questionNumInput.value = currentIdx + 1;
@@ -588,27 +588,27 @@
         const allBoxes = document.querySelectorAll(selectors.questionBox);
         if (allBoxes.length > 0) {
             // BUG 修复：仅当 index 严格大于 length 时才调整，避免在 index == length 时错误地重置到 0
-            if (currentQuestionIndex > allBoxes.length) { 
-                currentQuestionIndex = allBoxes.length - 1; 
+            if (currentQuestionIndex > allBoxes.length) {
+                currentQuestionIndex = allBoxes.length - 1;
             } else if (currentQuestionIndex < 0) {
                  currentQuestionIndex = 0;
             }
             updateQuestionInfoUI(allBoxes.length, currentQuestionIndex);
         }
     };
-    
+
     // 页面内容变化监听器
     const observer = new MutationObserver(() => setTimeout(checkPageQuestions, 500));
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
 
     async function autoLoopStep() {
         if (!isAutoAnswering) return;
-        
+
         const allBoxes = Array.from(document.querySelectorAll(selectors.questionBox));
-        
+
         if (allBoxes.length === 0) {
             log("⚠️ 未检测到题目，尝试下一页或停止");
-            
+
             // 使用修复后的查找函数
             const nextBtn = findButtonByText(selectors.nextButtonContainer, "下一题");
 
@@ -631,9 +631,9 @@
 
         if (currentQuestionIndex < allBoxes.length) {
             const currentBox = allBoxes[currentQuestionIndex];
-            
+
             currentBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            
+
             // --- ETA 计算与显示 ---
             const totalQuestions = allBoxes.length;
             const questionsRemaining = totalQuestions - currentQuestionIndex;
@@ -641,10 +641,10 @@
             const elapsedTime = (Date.now() - autoStartTime) / 1000;
             const avgTimePerQuestion = answeredSoFar > 0 ? elapsedTime / answeredSoFar : 0;
             const remainingTimeSeconds = avgTimePerQuestion * questionsRemaining;
-            
+
             let etaMessage = "";
             // 只有当已经回答了一定数量的题目后，ETA才具有参考价值
-            if (answeredSoFar >= 1 && remainingTimeSeconds > 5) { 
+            if (answeredSoFar >= 1 && remainingTimeSeconds > 5) {
                 const remainingMinutes = Math.ceil(remainingTimeSeconds / 60);
                 const avgSeconds = avgTimePerQuestion.toFixed(1);
                 etaMessage = ` (平均 ${avgSeconds} 秒/题, 预计 ${remainingMinutes} 分钟完成本页)`;
@@ -652,7 +652,7 @@
 
             log(`👉 正在处理第 ${currentQuestionIndex + 1} / ${totalQuestions} 题${etaMessage}`);
             // --- ETA end ---
-            
+
             try {
                  if (isCombinationQuestion(currentBox)) {
                     const context = getMainQuestionText(currentBox);
@@ -672,21 +672,21 @@
 
             currentQuestionIndex++;
             answeredInCurrentLoop++;
-            updateQuestionInfoUI(allBoxes.length, currentQuestionIndex - 1); 
-            
+            updateQuestionInfoUI(allBoxes.length, currentQuestionIndex - 1);
+
             await wait(getRandomDelay(timeDelay));
-            autoLoopStep(); 
-            
+            autoLoopStep();
+
         } else {
             log("📄 本页题目已处理完毕，尝试下一页...");
-            
+
             // 使用修复后的查找函数
             const nextBtn = findButtonByText(selectors.nextButtonContainer, "下一题");
-            
+
             if (nextBtn) {
                 log("➡️ 自动点击“下一题”按钮...");
                 nextBtn.click();
-                currentQuestionIndex = 0; 
+                currentQuestionIndex = 0;
                 answeredInCurrentLoop = 0; // 重置本轮计数
                 autoStartTime = Date.now(); // 重置计时
                 await wait(3000);
@@ -699,7 +699,7 @@
             }
         }
     }
-    
+
     // 全自动停止逻辑
     const stopAutoAnswering = () => {
         isAutoAnswering = false;
@@ -715,17 +715,17 @@
             isAutoAnswering = true;
             document.getElementById("full-auto-btn").innerText = "⏹️ 停止全自动";
             document.getElementById("full-auto-btn").className = "btn-danger";
-            
+
             const inputVal = parseInt(document.getElementById("single-question-number").value);
             if (!isNaN(inputVal) && inputVal > 0) {
                 currentQuestionIndex = inputVal - 1;
             } else {
                 currentQuestionIndex = 0;
             }
-            
+
             autoStartTime = Date.now();
             answeredInCurrentLoop = 0;
-            
+
             log(`🟢 开始全自动循环... 从第 ${currentQuestionIndex + 1} 题开始`);
             autoLoopStep();
         }
@@ -734,11 +734,11 @@
     document.getElementById("ai-single-solve-btn").addEventListener("click", async () => {
         const num = parseInt(document.getElementById("single-question-number").value);
         const allBoxes = Array.from(document.querySelectorAll('.item-box[id^="question-"]'));
-        
+
         if (num > 0 && num <= allBoxes.length) {
             const targetBox = allBoxes[num - 1];
             targetBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            
+
             if (isCombinationQuestion(targetBox)) {
                 const context = getMainQuestionText(targetBox);
                 const subs = getSubQuestions(targetBox);
@@ -759,16 +759,16 @@
     });
 
     // =================================================================
-    // 8. UI 交互与拖动逻辑 
+    // 8. UI 交互与拖动逻辑
     // =================================================================
-    
+
     // 新增功能：强制启用所有禁用按钮
     function enableAllDisabledButtons() {
         // 查找所有被禁用或带有禁用类的按钮
         const disabledButtons = document.querySelectorAll(
             'button[disabled], [aria-disabled="true"], .is-disabled, .el-button.is-disabled'
         );
-        
+
         let count = 0;
         let attributeRemoved = 0;
         let classRemoved = 0;
@@ -779,13 +779,13 @@
                 button.removeAttribute('disabled');
                 attributeRemoved++;
             }
-            
+
             // 2. 删除 aria-disabled 属性 (ARIA禁用)
             if (button.getAttribute('aria-disabled') === 'true') {
                 button.removeAttribute('aria-disabled');
                 attributeRemoved++;
             }
-            
+
             // 3. 移除 is-disabled 类名 (Element UI等框架的禁用样式)
             if (button.classList.contains('is-disabled')) {
                 button.classList.remove('is-disabled');
@@ -811,7 +811,7 @@
         aiConfig.apiEndpoint = document.getElementById("api-endpoint-input").value.trim();
         aiConfig.model = document.getElementById("model-input").value.trim();
         timeDelay = parseInt(document.getElementById("time-input").value) || 1500;
-        
+
         GM_setValue("apiKey", aiConfig.apiKey);
         GM_setValue("apiEndpoint", aiConfig.apiEndpoint);
         GM_setValue("model", aiConfig.model);
@@ -846,29 +846,29 @@
 
         panel.style.display = 'block';
         floatingBall.style.display = 'none';
-        
+
         // 保持位置同步
         panel.style.top = floatingBall.style.top;
         panel.style.right = floatingBall.style.right;
     });
-    
+
     let isDragging = false, startX, startY, initialTop, initialRight, targetElement;
-    
+
     const startDrag = (e, element) => {
         if (e.target.id === 'minimize-btn' || e.target.closest('button, input, textarea')) return;
-        
+
         isDragging = true;
         targetElement = element;
         // 添加一个临时的类用于在点击事件中判断是否发生了拖动
-        targetElement.classList.add('dragging-active'); 
+        targetElement.classList.add('dragging-active');
 
         startX = e.clientX;
         startY = e.clientY;
-        
+
         const rect = targetElement.getBoundingClientRect();
         initialTop = rect.top;
         initialRight = window.innerWidth - rect.right;
-        
+
         document.body.style.userSelect = "none";
         document.body.style.cursor = "grabbing";
 
@@ -895,15 +895,15 @@
         isDragging = false;
         // 在鼠标抬起后，保持 dragging-active 状态一小段时间，以供浮球点击事件判断
         setTimeout(() => targetElement.classList.remove('dragging-active'), 100);
-        
+
         document.body.style.userSelect = "auto";
         document.body.style.cursor = "default";
-        
+
         const currentPos = {
             top: parseInt(targetElement.style.top),
             right: parseInt(targetElement.style.right)
         };
-        
+
         if (targetElement.id === 'control-panel') {
             localStorage.setItem('neumooc_panel_pos', JSON.stringify(currentPos));
         } else if (targetElement.id === 'floating-ball') {
@@ -916,7 +916,7 @@
 
     document.getElementById("control-panel-header").addEventListener("mousedown", (e) => startDrag(e, panel));
     floatingBall.addEventListener("mousedown", (e) => {
-        e.stopPropagation(); 
+        e.stopPropagation();
         startDrag(e, floatingBall);
     });
 
