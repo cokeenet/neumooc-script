@@ -7,8 +7,8 @@
 // @license      MIT
 // @match        https://*.neumooc.com/*
 // @match        http*://localhost/*
-// @downloadURL  https://raw.githubusercontent.com/LuBanQAQ/neumooc-script/main/neumooc-script.user.js
-// @updateURL  https://raw.githubusercontent.com/LuBanQAQ/neumooc-script/main/neumooc-script.user.js
+// @downloadURL  https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
+// @updateURL  https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -60,14 +60,15 @@
     // --- AI 配置 ---
     let aiConfig = {
         apiKey: GM_getValue("apiKey", ""),
-        apiEndpoint: GM_getValue("apiEndpoint", "https://api.openai.com/v1/chat/completions"),
-        model: GM_getValue("model", "gpt-3.5-turbo"),
+        apiEndpoint: GM_getValue("apiEndpoint", "https://api.siliconflow.cn/v1/chat/completions"),
+        model: GM_getValue("model", "deepseek-ai/DeepSeek-V3.2"),
         bulkPromptTemplate: GM_getValue("bulkPromptTemplate", defaultBulkPrompt)
     };
 
-    let timeDelay = GM_getValue("timeDelay", 1500);
+    let timeDelay = GM_getValue("timeDelay", 2500);
     let isAutoAnswering = false;
     let isBulkAnswering = false;
+    let isSingleAnswering = false;
     let currentQuestionIndex = 0;
     let allQuestions = [];
     let consecutiveErrors = 0;
@@ -76,6 +77,7 @@
     let autoStartTime = 0;
     let answeredInCurrentLoop = 0;
 
+    let etaMessage = "";
     const savedPanelPos = JSON.parse(localStorage.getItem('neumooc_panel_pos')) || { top: 100, right: 360 };
     const savedFloatingPos = JSON.parse(localStorage.getItem('neumooc_mini_pos')) || { top: 100, right: 20 };
 
@@ -83,14 +85,14 @@
     // 2. GUI 界面构建 (解决遮挡问题)
     // =================================================================
     GM_addStyle(`
-        /* 极简隐蔽指示器 (纯红字) */
+        /* 极简隐蔽指示器 */
         #stealth-indicator {
             position: fixed;
             bottom: 2px; right: 2px;
-            color: red; font-family: Arial, sans-serif; font-size: 12px; font-weight: bold;
+            color: blue; font-family: Arial, sans-serif; font-size: 12px; font-weight: bold;
             z-index: 2147483647;
             pointer-events: none; /* 关键：允许点击穿透 */
-            display: none; /* 默认不显示 */
+            display: block; /* 默认显示 */
             line-height: 1; text-shadow: 1px 1px 0 #fff;
             user-select: none;
         }
@@ -162,24 +164,29 @@
     panel.id = "control-panel";
     panel.innerHTML = `
         <div id="control-panel-header">
-            <span>🎓 智能助手 v1.5.3 (隐蔽版)</span>
+            <span>🎓 智能助手 v1.5.3</span>
             <span id="minimize-btn">🔽</span>
         </div>
-        <div id="control-panel-body">
-            <div style="background:#f0f9ff; padding:8px; border-radius:4px; font-size:12px; color:#444; margin-bottom:10px;">
+        <div class="collapsible-header">📕 使用说明</div>
+            <div class="collapsible-content">
+               <div style="background:#f0f9ff; padding:8px; border-radius:4px; font-size:12px; color:#444; margin-bottom:10px;">
                 <strong>⌨️ 键盘快捷键:</strong><br>
                 <code style="color:#d63384">Ins</code>: 显示/隐藏 悬浮菜单<br>
                 <code style="color:#d63384">Alt+1</code>: 自动答题 (Start/Stop)<br>
-                <code style="color:#d63384">Alt+2</code>: 解答当前单题<br>
-                <code style="color:#d63384">Alt+3</code>: 批量解答本页<br>
-                <code style="color:#d63384">Alt+4</code>: 复制题目<br>
-                <code style="color:#d63384">Alt+5</code>: 呼出/隐藏 配置面板
+                <code style="color:#d63384">Alt+2</code>上一题<br>
+                <code style="color:#d63384">Alt+3</code>下一题<br>
+                <code style="color:#d63384">Alt+4</code>: 解答当前单题<br>
+                <code style="color:#d63384">Ins/Alt+5</code>: 呼出/隐藏 配置面板
+                <code style="color:#d63384">Alt+6</code>: 批量解答本页<br>
             </div>
+            </div>
+        <div id="control-panel-body">
+            
 
-            <div class="collapsible-header active">⚙️ 参数配置</div>
-            <div class="collapsible-content visible">
+            <div class="collapsible-header">⚙️ 参数配置</div>
+            <div class="collapsible-content">
                 <label>API Key:</label>
-                <input type="text" id="api-key-input" placeholder="sk-..." type="password">
+                <input type="text" id="api-key-input" placeholder="sk-..." >
                 <label>API Endpoint:</label>
                 <input type="text" id="api-endpoint-input">
                 <label>Model:</label>
@@ -193,9 +200,10 @@
                 <button id="save-bulk-prompt-btn">💾 保存提示词</button>
             </div>
 
-            <div class="collapsible-header">🏃 自动答题控制</div>
-            <div class="collapsible-content">
+            <div class="collapsible-header active">🏃 自动答题控制</div>
+            <div class="collapsible-content visible">
                 <div id="question-info" style="font-size: 12px; color: #666; margin: 8px 0; font-weight: bold;">题号: -/-</div>
+                <button id="full-auto-btn" class="btn-primary">▶️ 开始全自动答题</button>
                 <button id="ai-single-solve-btn" class="btn-info">🤖 解答悬浮球指定题号单题</button>
                 <button id="answer-all-btn" class="btn-info">🧠 一键提取并答完本页所有题</button>
             </div>
@@ -203,11 +211,11 @@
             <div class="collapsible-header">🛠️ 辅助工具</div>
             <div class="collapsible-content">
                 <button id="copy-question-btn">📋 复制当前题目 (Alt+4)</button>
-                <button id="finish-video-btn">🎬 尝试秒刷视频</button>
+                <button id="finish-video-btn">🎬 秒刷当前视频</button>
                 <button id="enable-all-buttons-btn" class="btn-primary">🔓 强制启用所有禁用按钮</button>
             </div>
 
-            <div id="log-area">系统就绪...按 Ins 显示菜单</div>
+            <div id="log-area">系统就绪...</div>
         </div>
     `;
     document.body.appendChild(panel);
@@ -218,7 +226,7 @@
 
     const floatingBall = document.createElement('div');
     floatingBall.id = 'floating-ball';
-    floatingBall.innerHTML = '<span>🎓</span>';
+    floatingBall.innerHTML = '<span>▫️</span>';
     floatingBallContainer.appendChild(floatingBall);
 
     const miniToolbar = document.createElement('div');
@@ -352,9 +360,11 @@
             const blankContainers = Array.from(questionBox.querySelectorAll(selectors.blankInputContainer));
             if (blankContainers.length === 0) return false;
 
-            let answers = answerText.split(/，|,|；|;|、/).map(a => a.trim()).filter(a => a);
+            let answers = answerText
+                .split(/\|/) // 匹配竖杠分隔符
+                .map(a => a.trim()) // 去除每个元素首尾空白
+                .filter(a => a); // 过滤空字符串
             if (blankContainers.length === 1 && answers.length > 1) answers = [answerText];
-
             for (let i = 0; i < blankContainers.length; i++) {
                 const inputField = blankContainers[i].querySelector(selectors.blankInputField);
                 const val = answers[i] || answers[0] || "";
@@ -382,18 +392,19 @@
     }
 
     const buildSinglePrompt = (questionText, options, type, context = "") => {
-        let prompt = `你是一个严谨的答题助手。请直接输出最终答案，不要包含任何解释。`;
+        let prompt = `你是一个严谨的考试答题助手。请根据以下题目和选项，找出最准确的答案。直接输出最终答案，不要包含任何解释。`;
         if (context) prompt += `\n背景材料：${context}\n`;
         prompt += `\n题目：${questionText}\n`;
 
         if (type === 'blank') {
-            prompt += `这是一个填空题。请直接返回答案内容。如果有多个空，用中文逗号 "，" 分隔。`;
+            prompt += `这是一个填空题。请直接返回答案内容。如果有多个空，用英文竖杠 "|" 分隔。`;
         } else {
             prompt += `选项：\n`;
+            if (options.length === 0) return reject("无法解析选项。");
             options.forEach((opt, i) => { prompt += `${String.fromCharCode(65 + i)}. ${opt}\n`; });
-            if (type === 'multiple') prompt += `\n这是多选题，请返回所有正确选项大写字母，用逗号分隔（如 A,B,C）。`;
-            else if (type === 'judge') prompt += `\n这是判断题，选项A代表正确，B代表错误，请返回唯一正确选项大写字母（A或B）。`;
-            else prompt += `\n这是单选题，请返回唯一正确选项大写字母（如 A）。`;
+            if (type === 'multiple') prompt += `\n注意：这是一个多选题，可能有一个或多个正确答案。请给出所有正确答案的字母，仅用逗号分隔（例如: A,B）。请只返回字母和逗号。`;
+            else if (type === 'judge') prompt += `\n注意：这是一个判断题。选项A代表正确，B代表错误，请只返回唯一正确答案的字母（例如: A）。`;
+            else prompt += `\n注意：这是一个单选题。请只返回唯一正确答案的字母（例如: A）。`;
         }
         return prompt;
     };
@@ -401,7 +412,7 @@
     const sendAiRequest = (prompt) => {
         return new Promise((resolve, reject) => {
             if (!aiConfig.apiKey) return reject(new Error("未配置 API Key"));
-
+            log(prompt);
             GM_xmlhttpRequest({
                 method: "POST",
                 url: aiConfig.apiEndpoint,
@@ -413,7 +424,7 @@
                 }),
                 onload: (res) => {
                     try {
-                        if (!isBulkAnswering && !isAutoAnswering) return reject(new Error("任务已被用户中断"));
+                        if (!isBulkAnswering && !isAutoAnswering && !isSingleAnswering) return reject(new Error("任务已被用户中断"));
                         if (res.status !== 200) return reject(new Error(`API Error ${res.status}: ${res.responseText.slice(0, 50)}`));
                         const data = JSON.parse(res.responseText);
                         const content = data.choices[0].message.content.trim();
@@ -565,6 +576,8 @@
 
     const questionNumInput = document.getElementById("single-question-number");
     const fullAutoBtn = document.getElementById("full-auto-btn");
+
+    const singleSolveBtn = document.getElementById("ai-single-solve-btn");
     const floatingBallContainerEl = document.getElementById("floating-ball-container");
 
     questionNumInput.addEventListener('change', () => {
@@ -592,9 +605,20 @@
 
         // --- 更新隐蔽指示器 ---
         if (stealthIndicator) {
-            stealthIndicator.textContent = `${currentIdx + 1}/${total}`;
-            // 只有在自动答题进行中才显示
-            stealthIndicator.style.display = isAutoAnswering ? 'block' : 'none';
+            if (isAutoAnswering) {
+                // 自动答题时：显示元素，并设置带"A"的文本
+                stealthIndicator.textContent = `A ${currentIdx + 1}/${total}`;
+            } else if (isSingleAnswering) {
+                // 自动答题时：显示元素，并设置带"A"的文本
+                stealthIndicator.textContent = `SI ${currentIdx + 1}/${total}`;
+            } else if (isBulkAnswering) {
+                // 自动答题时：显示元素，并设置带"A"的文本
+                stealthIndicator.textContent = `BU ${currentIdx + 1}/${total}`;
+            } else {
+                // 非自动答题时：隐藏元素（或清空文本，可二选一）
+                stealthIndicator.textContent = `- ${currentIdx + 1}/${total}`;
+                // 可选：如果不想隐藏，只是清空文本，可替换为这行：stealthIndicator.textContent = '';
+            }
         }
     };
 
@@ -603,11 +627,11 @@
         const total = allQuestions.length;
         if (total > 0) {
             if (currentQuestionIndex >= total) currentQuestionIndex = total - 1;
-            updateQuestionInfoUI(total, currentQuestionIndex);
+            updateQuestionInfoUI(total, currentQuestionIndex, etaMessage);
         }
     };
 
-    const observer = new MutationObserver(() => setTimeout(checkPageQuestions, 500));
+    const observer = new MutationObserver(() => setTimeout(checkPageQuestions, 1000));
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
     window.addEventListener('load', () => setTimeout(checkPageQuestions, 1000));
 
@@ -628,6 +652,22 @@
         }
     };
 
+    const turnPage = () => {
+
+        const totalQuestions = allQuestions.length;
+        const nextBtn = findButtonByText(selectors.nextButtonContainer, "下一题") || findButtonByText(selectors.nextButtonContainer, "下一页");
+        if (nextBtn) {
+            log("➡️ 自动翻页...");
+            nextBtn.click();
+            return true;
+        } else if (currentQuestionIndex + 1 >= totalQuestions) {
+            log("✅ 本页完成 (无下一页按钮)");
+            log("🏁 自动模式停止");
+            stopAutoAnswering();
+            return false;
+        }
+    };
+
     async function autoLoopStep() {
         if (!isAutoAnswering) return;
 
@@ -635,7 +675,7 @@
         const totalQuestions = allQuestions.length;
 
         // 页面无题或已处理完：尝试翻页
-        if (totalQuestions === 0 || currentQuestionIndex >= totalQuestions) {
+        if (totalQuestions === 0) {
             if (!handleNextQuestionOrStop(totalQuestions)) {
                 if (totalQuestions === 0) {
                     log("⚠️ 未检测到题目，等待 3 秒重试...");
@@ -648,18 +688,21 @@
             await wait(3000);
             return autoLoopStep();
         }
-
+        //答完了，停止
+        if (currentQuestionIndex - 1 >= totalQuestions) {
+            stopAutoAnswering();
+            return false;
+        }
         const currentBox = allQuestions[currentQuestionIndex];
         currentBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
         // ETA
         const questionsRemaining = totalQuestions - currentQuestionIndex;
         const elapsedTime = (Date.now() - autoStartTime) / 1000;
-        let etaMessage = "";
         if (answeredInCurrentLoop >= 1) {
             const avgTime = elapsedTime / answeredInCurrentLoop;
             const remaining = avgTime * questionsRemaining;
-            etaMessage = ` | 预计剩余 ${(remaining / 60).toFixed(1)} 分`;
+            etaMessage = ` | ${avgTime}s/题  | ETA ${(remaining / 60).toFixed(1)} 分`;
         }
         updateQuestionInfoUI(totalQuestions, currentQuestionIndex, etaMessage);
         log(`👉 处理第 ${currentQuestionIndex + 1} / ${totalQuestions} 题`);
@@ -689,6 +732,10 @@
 
         currentQuestionIndex++;
         answeredInCurrentLoop++;
+        //turnPage();
+        let delayTime = getRandomDelay(timeDelay);
+        log(`等待 ${delayTime / 1000.0} s(${timeDelay / 1000.0} s)`);
+
         await wait(getRandomDelay(timeDelay));
         autoLoopStep();
     }
@@ -698,15 +745,16 @@
         fullAutoBtn.innerText = "▶️ 自动";
         fullAutoBtn.className = "btn-primary";
         log("🔴 已停止");
+        etaMessage = "";
         // 隐藏红字
-        stealthIndicator.style.display = 'none';
+        //stealthIndicator.style.display = 'none';
     };
 
     const startAutoAnswering = () => {
         if (!aiConfig.apiKey) { log("❌ 请配置 API Key"); alert("请按 Alt+5 设置 API Key"); return; }
         checkPageQuestions();
         isAutoAnswering = true;
-        fullAutoBtn.innerText = "⏹️ 停止";
+        fullAutoBtn.innerText = "⏹️ 停止 Auto";
         fullAutoBtn.className = "btn-danger";
 
         const inputVal = parseInt(questionNumInput.value);
@@ -727,7 +775,9 @@
         const num = parseInt(questionNumInput.value);
         checkPageQuestions();
         if (!aiConfig.apiKey) { log("❌ 无 API Key"); return; }
-
+        if (!isSingleAnswering) isSingleAnswering = true;
+        singleSolveBtn.innerText = "⏹️ 停止 Single";
+        singleSolveBtn.className = "btn-danger";
         if (num > 0 && num <= allQuestions.length) {
             const targetBox = allQuestions[num - 1];
             currentQuestionIndex = num - 1;
@@ -736,10 +786,17 @@
                 const subs = getSubQuestions(targetBox);
                 log(`🤖 解答组合题[${num}]`);
                 for (const sub of subs) await solveSingleQuestion(sub, true, getMainQuestionText(targetBox));
+                isSingleAnswering = false;
+                log(`✅ 解答组合题[${num}] 完成.`);
             } else {
                 log(`🤖 解答单题[${num}]`);
                 await solveSingleQuestion(targetBox);
+                isSingleAnswering = false;
+                log(`✅ 解答单题[${num}] 完成.`);
             }
+
+            singleSolveBtn.innerText = "🤖 开始单题解答";
+            singleSolveBtn.className = "btn-info";
         } else {
             log("⚠️ 题号无效");
         }
@@ -752,7 +809,6 @@
     const togglePanelVisibility = () => {
         const isPanelVisible = panel.style.display !== 'none';
         const isMiniVisible = floatingBallContainer.style.display !== 'none';
-
         if (isPanelVisible || isMiniVisible) {
             // 如果有任何界面显示，则全部隐藏
             panel.style.display = 'none';
@@ -785,20 +841,24 @@
                     break;
                 case '2':
                     e.preventDefault();
-                    document.getElementById("ai-single-solve-btn").click();
+                    document.getElementById("test-prev-btn").click();
                     break;
                 case '3':
                     e.preventDefault();
-                    document.getElementById("answer-all-btn").click();
+                    document.getElementById("test-next-btn").click();
                     break;
                 case '4':
                     e.preventDefault();
-                    document.getElementById("copy-question-btn").click();
+                    document.getElementById("ai-single-solve-btn").click();
                     break;
                 case '5':
                     e.preventDefault();
                     // Alt+5 用于直接呼出/隐藏主面板或悬浮球
                     togglePanelVisibility();
+                    break;
+                case '6':
+                    e.preventDefault();
+                    document.getElementById("answer-all-btn").click();
                     break;
             }
         }
@@ -809,7 +869,7 @@
         aiConfig.apiKey = document.getElementById("api-key-input").value.trim();
         aiConfig.apiEndpoint = document.getElementById("api-endpoint-input").value.trim();
         aiConfig.model = document.getElementById("model-input").value.trim();
-        timeDelay = Math.max(0, parseInt(document.getElementById("time-input").value) || 0);
+        timeDelay = Math.max(2500, parseInt(document.getElementById("time-input").value) || 0);
         GM_setValue("apiKey", aiConfig.apiKey);
         GM_setValue("apiEndpoint", aiConfig.apiEndpoint);
         GM_setValue("model", aiConfig.model);
@@ -824,11 +884,29 @@
     document.querySelectorAll(".collapsible-header").forEach(h => {
         h.addEventListener("click", () => { h.classList.toggle("active"); h.nextElementSibling.classList.toggle("visible"); });
     });
-    document.getElementById("minimize-btn").addEventListener("click", () => { panel.style.display = 'none'; floatingBallContainer.style.display = 'flex'; });
+    document.getElementById("minimize-btn").addEventListener("click", () => {
+        // 点击最小化 => 隐藏面板，显示悬浮球
+        const rect = panel.getBoundingClientRect();
+        panel.style.display = 'none';
+
+        // 将悬浮球放在当前面板的位置附近，确保在可视区域内
+        const ballTop = Math.max(10, Math.min(rect.top, window.innerHeight - 58));
+        const ballLeft = Math.max(10, Math.min(rect.left, window.innerWidth - 58));
+
+        floatingBallContainer.style.top = `${ballTop}px`;
+        floatingBallContainer.style.left = `${ballLeft}px`;
+        floatingBallContainer.style.right = 'auto';
+        floatingBallContainer.style.display = 'flex';
+    });
     floatingBall.addEventListener("click", () => {
-        if (floatingBallContainer.classList.contains('dragging-active')) { floatingBallContainer.classList.remove('dragging-active'); return; }
-        panel.style.top = floatingBallContainer.style.top; panel.style.right = floatingBallContainer.style.right;
-        panel.style.display = 'block'; floatingBallContainer.style.display = 'none';
+        if (floatingBallContainer.classList.contains('dragging-active')) {
+            floatingBallContainer.classList.remove('dragging-active');
+            return;
+        }
+        panel.style.top = floatingBallContainer.style.top;
+        panel.style.right = floatingBallContainer.style.right;
+        panel.style.display = 'block';
+        floatingBallContainer.style.display = 'none';
     });
 
     // 拖动逻辑
@@ -842,7 +920,8 @@
         startX = e.clientX; startY = e.clientY;
         const rect = targetElement.getBoundingClientRect(); initialTop = rect.top; initialRight = window.innerWidth - rect.right;
         document.body.style.userSelect = "none"; document.body.style.cursor = "grabbing"; targetElement.dataset.storageKey = storageKey;
-        document.addEventListener("mousemove", onDragging); document.addEventListener("mouseup", stopDrag);
+        document.addEventListener("mousemove", onDragging);
+        document.addEventListener("mouseup", stopDrag);
     };
     const onDragging = (e) => {
         if (!isDragging || !targetElement) return;
