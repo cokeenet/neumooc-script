@@ -20,6 +20,7 @@
 // ==/UserScript==
 
 (function () {
+
     "use strict";
 
     // =================================================================
@@ -89,7 +90,7 @@
         #stealth-indicator {
             position: fixed;
             bottom: 2px; right: 2px;
-            color: blue; font-family: Arial, sans-serif; font-size: 12px; font-weight: bold;
+            color: blue; font-family: Arial, sans-serif; font-size: 12px; font-weight: lighter;
             z-index: 2147483647;
             pointer-events: none; /* 关键：允许点击穿透 */
             display: block; /* 默认显示 */
@@ -178,10 +179,11 @@
                 <code style="color:#d63384">Alt+4</code>: 解答当前单题<br>
                 <code style="color:#d63384">Ins/Alt+5</code>: 呼出/隐藏 配置面板
                 <code style="color:#d63384">Alt+6</code>: 批量解答本页<br>
+                <code style="color:#d63384">Alt+7</code>: 复制当前题目<br>
             </div>
             </div>
         <div id="control-panel-body">
-            
+
 
             <div class="collapsible-header">⚙️ 参数配置</div>
             <div class="collapsible-content">
@@ -210,7 +212,7 @@
 
             <div class="collapsible-header">🛠️ 辅助工具</div>
             <div class="collapsible-content">
-                <button id="copy-question-btn">📋 复制当前题目 (Alt+4)</button>
+                <button id="copy-question-btn">📋 复制当前题目 (Alt+7)</button>
                 <button id="finish-video-btn">🎬 秒刷当前视频</button>
                 <button id="enable-all-buttons-btn" class="btn-primary">🔓 强制启用所有禁用按钮</button>
             </div>
@@ -400,7 +402,7 @@
             prompt += `这是一个填空题。请直接返回答案内容。如果有多个空，用英文竖杠 "|" 分隔。`;
         } else {
             prompt += `选项：\n`;
-            if (options.length === 0) return reject("无法解析选项。");
+            if (options.length === 0) return log("无法解析选项。");
             options.forEach((opt, i) => { prompt += `${String.fromCharCode(65 + i)}. ${opt}\n`; });
             if (type === 'multiple') prompt += `\n注意：这是一个多选题，可能有一个或多个正确答案。请给出所有正确答案的字母，仅用逗号分隔（例如: A,B）。请只返回字母和逗号。`;
             else if (type === 'judge') prompt += `\n注意：这是一个判断题。选项A代表正确，B代表错误，请只返回唯一正确答案的字母（例如: A）。`;
@@ -859,6 +861,10 @@
                 case '6':
                     e.preventDefault();
                     document.getElementById("answer-all-btn").click();
+                    break;
+                case '7':
+                    e.preventDefault();
+                    document.getElementById("copy-question-btn").click();
                     break;
             }
         }
