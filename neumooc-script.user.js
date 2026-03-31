@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NEUMOOC 智能助手
 // @namespace    http://tampermonkey.net/
-// @version      1.5.4
-// @description  v1.5.4：默认隐身；自动答题显示极简红字；保留Ins键开关菜单；修复点击穿透遮挡问题。
+// @version      1.5.5
+// @description  v1.5.5：修复主面板与悬浮球自动答题按钮的 ID 冲突和状态同步问题。
 // @author       LuBanQAQ & Cokee & Gemini
 // @license      MIT
 // @match        https://*.neumooc.com/*
@@ -151,8 +151,8 @@
         #mini-toolbar button { padding: 4px 6px; margin: 0 2px; margin-bottom: 0; border-radius: 4px; font-size: 11px; height: 28px; width: auto !important; flex-shrink: 0; }
         #mini-toolbar #single-question-number { width: 40px; height: 28px; padding: 2px; text-align: center; margin: 0 5px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; font-size: 12px; }
         #question-info-mini { font-size: 11px; color: #666; margin-right: 8px; white-space: nowrap; }
-        #mini-toolbar #full-auto-btn { font-weight: bold; background-color: #4facfe; color: white; padding: 4px 10px; }
-        #mini-toolbar #full-auto-btn.btn-danger { background-color: #ff6b6b; }
+        #mini-toolbar #mini-full-auto-btn { font-weight: bold; background-color: #4facfe; color: white; padding: 4px 10px; }
+        #mini-toolbar #mini-full-auto-btn.btn-danger { background-color: #ff6b6b; }
     `);
 
     // --- 隐蔽指示器 ---
@@ -165,24 +165,24 @@
     panel.id = "control-panel";
     panel.innerHTML = `
         <div id="control-panel-header">
-            <span>🎓 智能助手 v1.5.3</span>
+            <span>🎓 智能助手 v1.5.5</span>
             <span id="minimize-btn">🔽</span>
         </div>
+        <div id="control-panel-body">
         <div class="collapsible-header">📕 使用说明</div>
             <div class="collapsible-content">
-               <div style="background:#f0f9ff; padding:8px; border-radius:4px; font-size:12px; color:#444; margin-bottom:10px;">
+               <div style="background:#f0f9ff; padding:8px; border-radius:4px; font-size:12px; color:#444;">
                 <strong>⌨️ 键盘快捷键:</strong><br>
                 <code style="color:#d63384">Ins</code>: 显示/隐藏 悬浮菜单<br>
                 <code style="color:#d63384">Alt+1</code>: 自动答题 (Start/Stop)<br>
-                <code style="color:#d63384">Alt+2</code>上一题<br>
-                <code style="color:#d63384">Alt+3</code>下一题<br>
+                <code style="color:#d63384">Alt+2</code>: 上一题<br>
+                <code style="color:#d63384">Alt+3</code>: 下一题<br>
                 <code style="color:#d63384">Alt+4</code>: 解答当前单题<br>
-                <code style="color:#d63384">Ins/Alt+5</code>: 呼出/隐藏 配置面板
+                <code style="color:#d63384">Ins/Alt+5</code>: 呼出/隐藏 配置面板<br>
                 <code style="color:#d63384">Alt+6</code>: 批量解答本页<br>
                 <code style="color:#d63384">Alt+7</code>: 复制当前题目<br>
             </div>
             </div>
-        <div id="control-panel-body">
 
 
             <div class="collapsible-header">⚙️ 参数配置</div>
@@ -205,7 +205,7 @@
             <div class="collapsible-header active">🏃 自动答题控制</div>
             <div class="collapsible-content visible">
                 <div id="question-info" style="font-size: 12px; color: #666; margin: 8px 0; font-weight: bold;">题号: -/-</div>
-                <button id="full-auto-btn" class="btn-primary">▶️ 开始全自动答题</button>
+                <button id="main-full-auto-btn" class="btn-primary">▶️ 开始全自动答题</button>
                 <button id="ai-single-solve-btn" class="btn-info">🤖 解答悬浮球指定题号单题</button>
                 <button id="answer-all-btn" class="btn-info">🧠 一键提取并答完本页所有题</button>
             </div>
@@ -236,7 +236,7 @@
     miniToolbar.innerHTML = `
         <span id="question-info-mini">题号: -/-</span>
         <input type="number" id="single-question-number" placeholder="题号" value="1">
-        <button id="full-auto-btn" class="btn-primary" title="快捷键: Alt+1">▶️ 自动</button>
+        <button id="mini-full-auto-btn" class="btn-primary" title="快捷键: Alt+1">▶️ 自动</button>
         <button id="test-prev-btn">◀️</button>
         <button id="test-next-btn">▶️</button>
     `;
@@ -271,7 +271,7 @@
 
     function enableAllDisabledButtons() {
         const disabledButtons = document.querySelectorAll(
-            'button[disabled], [aria-disabled="true"], .is-disabled, .el-button.is-disabled'
+            'button[disabled],[aria-disabled="true"], .is-disabled, .el-button.is-disabled'
         );
         let count = 0;
         disabledButtons.forEach(button => {
@@ -577,7 +577,10 @@
     // =================================================================
 
     const questionNumInput = document.getElementById("single-question-number");
-    const fullAutoBtn = document.getElementById("full-auto-btn");
+
+    // 获取两个不同的 full auto 按钮
+    const mainAutoBtn = document.getElementById("main-full-auto-btn");
+    const miniAutoBtn = document.getElementById("mini-full-auto-btn");
 
     const singleSolveBtn = document.getElementById("ai-single-solve-btn");
     const floatingBallContainerEl = document.getElementById("floating-ball-container");
@@ -608,18 +611,13 @@
         // --- 更新隐蔽指示器 ---
         if (stealthIndicator) {
             if (isAutoAnswering) {
-                // 自动答题时：显示元素，并设置带"A"的文本
                 stealthIndicator.textContent = `A ${currentIdx + 1}/${total}`;
             } else if (isSingleAnswering) {
-                // 自动答题时：显示元素，并设置带"A"的文本
                 stealthIndicator.textContent = `SI ${currentIdx + 1}/${total}`;
             } else if (isBulkAnswering) {
-                // 自动答题时：显示元素，并设置带"A"的文本
                 stealthIndicator.textContent = `BU ${currentIdx + 1}/${total}`;
             } else {
-                // 非自动答题时：隐藏元素（或清空文本，可二选一）
                 stealthIndicator.textContent = `- ${currentIdx + 1}/${total}`;
-                // 可选：如果不想隐藏，只是清空文本，可替换为这行：stealthIndicator.textContent = '';
             }
         }
     };
@@ -704,7 +702,7 @@
         if (answeredInCurrentLoop >= 1) {
             const avgTime = elapsedTime / answeredInCurrentLoop;
             const remaining = avgTime * questionsRemaining;
-            etaMessage = ` | ${avgTime}s/题  | ETA ${(remaining / 60).toFixed(1)} 分`;
+            etaMessage = ` | ${avgTime.toFixed(1)}s/题  | ETA ${(remaining / 60).toFixed(1)} 分`;
         }
         updateQuestionInfoUI(totalQuestions, currentQuestionIndex, etaMessage);
         log(`👉 处理第 ${currentQuestionIndex + 1} / ${totalQuestions} 题`);
@@ -734,30 +732,33 @@
 
         currentQuestionIndex++;
         answeredInCurrentLoop++;
-        //turnPage();
-        let delayTime = getRandomDelay(timeDelay);
-        log(`等待 ${delayTime / 1000.0} s(${timeDelay / 1000.0} s)`);
 
-        await wait(getRandomDelay(timeDelay));
+        let delayTime = getRandomDelay(timeDelay);
+        log(`等待 ${(delayTime / 1000.0).toFixed(1)} s(基础 ${timeDelay / 1000.0} s)`);
+
+        await wait(delayTime);
         autoLoopStep();
     }
 
     const stopAutoAnswering = () => {
         isAutoAnswering = false;
-        fullAutoBtn.innerText = "▶️ 自动";
-        fullAutoBtn.className = "btn-primary";
+        mainAutoBtn.innerText = "▶️ 开始全自动答题";
+        mainAutoBtn.className = "btn-primary";
+        miniAutoBtn.innerText = "▶️ 自动";
+        miniAutoBtn.className = "btn-primary";
         log("🔴 已停止");
         etaMessage = "";
-        // 隐藏红字
-        //stealthIndicator.style.display = 'none';
     };
 
     const startAutoAnswering = () => {
         if (!aiConfig.apiKey) { log("❌ 请配置 API Key"); alert("请按 Alt+5 设置 API Key"); return; }
         checkPageQuestions();
         isAutoAnswering = true;
-        fullAutoBtn.innerText = "⏹️ 停止 Auto";
-        fullAutoBtn.className = "btn-danger";
+
+        mainAutoBtn.innerText = "⏹️ 停止 Auto";
+        mainAutoBtn.className = "btn-danger";
+        miniAutoBtn.innerText = "⏹️ 停止";
+        miniAutoBtn.className = "btn-danger";
 
         const inputVal = parseInt(questionNumInput.value);
         currentQuestionIndex = (!isNaN(inputVal) && inputVal > 0) ? inputVal - 1 : 0;
@@ -769,9 +770,12 @@
         autoLoopStep();
     };
 
-    fullAutoBtn.addEventListener("click", () => {
+    // 绑定事件处理器到两个不同的自动答题按钮
+    const toggleAutoHandler = () => {
         if (isAutoAnswering) stopAutoAnswering(); else startAutoAnswering();
-    });
+    };
+    mainAutoBtn.addEventListener("click", toggleAutoHandler);
+    miniAutoBtn.addEventListener("click", toggleAutoHandler);
 
     document.getElementById("ai-single-solve-btn").addEventListener("click", async () => {
         const num = parseInt(questionNumInput.value);
@@ -965,6 +969,4 @@
     });
 
     checkPageQuestions();
-    // 默认不显示任何 UI，除非按 Ins
-    // if (panel.style.display === 'none') floatingBallContainer.style.display = 'flex'; // 这一行被注释掉以实现默认隐身
 })();
