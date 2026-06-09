@@ -6,6 +6,8 @@
 // @author       LuBanQAQ & Cokee & Gemini
 // @license      MIT
 // @match        https://*.neumooc.com/*
+// @match        https://study.neusoft.edu.cn/*
+// @match        https://*.neusoft.edu.cn/*
 // @match        http*://localhost/*
 // @downloadURL  https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
 // @updateURL  https://raw.githubusercontent.com/cokeenet/neumooc-script/main/neumooc-script.user.js
@@ -626,7 +628,9 @@
         allQuestions = Array.from(document.querySelectorAll(selectors.questionBox));
         const total = allQuestions.length;
         if (total > 0) {
-            if (currentQuestionIndex >= total) currentQuestionIndex = total - 1;
+            if (!isAutoAnswering && currentQuestionIndex >= total) {
+                currentQuestionIndex = total - 1;
+            }
             updateQuestionInfoUI(total, currentQuestionIndex, etaMessage);
         }
     };
@@ -674,24 +678,26 @@
         checkPageQuestions();
         const totalQuestions = allQuestions.length;
 
-        // 页面无题或已处理完：尝试翻页
+        // 1. 页面无题：可能是还没加载出来，尝试翻页或等待
         if (totalQuestions === 0) {
             if (!handleNextQuestionOrStop(totalQuestions)) {
-                if (totalQuestions === 0) {
-                    log("⚠️ 未检测到题目，等待 3 秒重试...");
-                    await wait(3000);
-                    if (isAutoAnswering) autoLoopStep();
-                }
+                log("⚠️ 未检测到题目，等待 3 秒重试...");
+                await wait(3000);
+                if (isAutoAnswering) autoLoopStep();
                 return;
             }
             log("⏳ 等待页面加载 (3s)...");
             await wait(3000);
             return autoLoopStep();
         }
-        //答完了，停止
-        if (currentQuestionIndex - 1 >= totalQuestions) {
-            stopAutoAnswering();
-            return false;
+
+        // 2. 本页答完：触发翻页逻辑（修复死循环的核心处）
+        if (currentQuestionIndex >= totalQuestions) {
+            log("✅ 当前页面所有题目已处理完毕。");
+            if (!handleNextQuestionOrStop(totalQuestions)) return; // 无法翻页就停止
+            log("⏳ 等待新页面题目加载 (3s)...");
+            await wait(3000);
+            return autoLoopStep();
         }
         const currentBox = allQuestions[currentQuestionIndex];
         currentBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
